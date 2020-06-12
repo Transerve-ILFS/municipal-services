@@ -1,10 +1,12 @@
 package org.egov.bpa.util;
 
+import static org.egov.bpa.util.BPAConstants.BILL_AMOUNT;
+
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.EnumSet;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -13,15 +15,26 @@ import java.util.Set;
 import org.egov.bpa.config.BPAConfiguration;
 import org.egov.bpa.repository.ServiceRequestRepository;
 import org.egov.bpa.web.model.AuditDetails;
+import org.egov.bpa.web.model.BPA;
+import org.egov.bpa.web.model.BPARequest;
+import org.egov.bpa.web.model.RequestInfoWrapper;
+import org.egov.bpa.web.model.user.UserDetailResponse;
 import org.egov.common.contract.request.RequestInfo;
+import org.egov.land.service.LandUserService;
+import org.egov.land.web.models.OwnerInfo;
+import org.egov.land.web.models.User;
 import org.egov.mdms.model.MasterDetail;
 import org.egov.mdms.model.MdmsCriteria;
 import org.egov.mdms.model.MdmsCriteriaReq;
 import org.egov.mdms.model.ModuleDetail;
+import org.egov.tracer.model.CustomException;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.Option;
 import com.jayway.jsonpath.spi.json.JacksonJsonProvider;
@@ -36,6 +49,12 @@ public class BPAUtil {
 
 	@Autowired
 	private ServiceRequestRepository serviceRequestRepository;
+	
+	@Autowired
+	private LandUserService userService;
+	
+	@Autowired
+	private ObjectMapper mapper;
 
 	@Autowired
 	public BPAUtil(BPAConfiguration config, ServiceRequestRepository serviceRequestRepository) {
@@ -169,6 +188,77 @@ public class BPAUtil {
 			codes = new String[0];
 		}
 		return  new ArrayList<String>(Arrays.asList(codes));
-
 	}
+
+	public BigDecimal getDemandAmount(BPARequest bpaRequest) {
+		BPA bpa = bpaRequest.getBPA();
+		RequestInfo requestInfo = bpaRequest.getRequestInfo();
+		LinkedHashMap responseMap = (LinkedHashMap) serviceRequestRepository.fetchResult(getBillUri(bpa),
+				new RequestInfoWrapper(requestInfo));
+		JSONObject jsonObject = new JSONObject(responseMap);
+		double amount = 0.0;
+		try {
+			JSONArray demandArray = (JSONArray) jsonObject.get("Demands");
+			if (demandArray != null && demandArray.length() > 0) {
+				JSONObject firstElement = (JSONObject) demandArray.get(0);
+				if (firstElement != null) {
+					JSONArray demandDetails = (JSONArray) firstElement.get("demandDetails");
+					if (demandDetails != null) {
+						for (int i = 0; i < demandDetails.length(); i++) {
+							JSONObject object = (JSONObject) demandDetails.get(i);
+							Double taxAmt = Double.valueOf((object.get("taxAmount").toString()));
+							amount = amount + taxAmt;
+						}
+					}
+				}
+			}
+			return BigDecimal.valueOf(amount);
+		} catch (Exception e) {
+			throw new CustomException("PARSING ERROR", "Failed to parse the response using jsonPath: " + BILL_AMOUNT);
+		}
+	}
+
+	private StringBuilder getBillUri(BPA bpa) {
+		String status = bpa.getStatus().toString();
+		String code = null;
+
+		if (bpa.getBusinessService().equalsIgnoreCase(BPAConstants.BPA_MODULE)) {
+			if (status.equalsIgnoreCase("PENDING_APPL_FEE")) {
+				code = "BPA.NC_APP_FEE";
+			} else {
+				code = "BPA.NC_SAN_FEE";
+			}
+		} else if (bpa.getBusinessService().equalsIgnoreCase(BPAConstants.BPA_LOW_MODULE_CODE)) {
+			if (status.equalsIgnoreCase("PENDING_FEE"))
+				code = "BPA.LOW_RISK_PERMIT_FEE";
+		} else if (bpa.getBusinessService().equalsIgnoreCase(BPAConstants.BPA_OC_MODULE_CODE)) {
+			if (status.equalsIgnoreCase("PENDING_APPL_FEE")) {
+				code = "BPA.NC_OC_APP_FEE";
+			} else {
+				code = "BPA.NC_OC_SAN_FEE";
+			}
+		}
+
+		StringBuilder builder = new StringBuilder(config.getBillingHost());
+		builder.append(config.getDemandSearchEndpoint());
+		builder.append("?tenantId=");
+		builder.append(bpa.getTenantId());
+		builder.append("&consumerCode=");
+		builder.append(bpa.getApplicationNo());
+		builder.append("&businessService=");
+		builder.append(code);
+		return builder;
+	}
+
+//	public BPARequest getSystemPaymentRoleUser(BPARequest bpaRequest) {
+//		OwnerInfo ownerInfo = OwnerInfo.builder().tenantId(bpaRequest.getBPA().getTenantId())
+//				.uuid(config.getSystemPaymentUser()).build();
+//		UserDetailResponse userDetails = userService.userExists(ownerInfo, bpaRequest.getRequestInfo());
+//		org.egov.common.contract.request.User userInfo = mapper.convertValue(userDetails.getUser().get(0),
+//				org.egov.common.contract.request.User.class);
+//		BPARequest updateBPARequest = BPARequest.builder().BPA(bpaRequest.getBPA())
+//				.requestInfo(bpaRequest.getRequestInfo()).build();
+//		updateBPARequest.getRequestInfo().setUserInfo(userInfo);
+//		return updateBPARequest;
+//	}
 }

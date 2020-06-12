@@ -380,6 +380,13 @@ public class BPAService {
 			calculationService.addCalculation(bpaRequest, BPAConstants.SANCTION_FEE_KEY);
 		}
 		
+		//TODO: we need handle status code for BPA_LOW and BPA_OC also
+		if (bpa.getStatus().equalsIgnoreCase(BPAConstants.SANC_FEE_STATE)
+				|| bpa.getStatus().equalsIgnoreCase(BPAConstants.APPL_FEE_STATE)) {
+			enrichmentService.skipPaymentOption(bpaRequest);
+			enrichmentService.postStatusEnrichment(bpaRequest);
+		}
+		
 		repository.update(bpaRequest, workflowService.isStateUpdatable(bpa.getStatus(), businessService));
 		return bpaRequest.getBPA();
 

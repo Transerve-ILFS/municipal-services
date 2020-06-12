@@ -102,11 +102,12 @@ public class LandUserService {
 	 *            The requestInfo of the request
 	 * @return The search response from the user service
 	 */
-	private UserDetailResponse userExists(OwnerInfo owner, RequestInfo requestInfo) {
+	public UserDetailResponse userExists(OwnerInfo owner, RequestInfo requestInfo) {
 
 		UserSearchRequest userSearchRequest = new UserSearchRequest();
 		userSearchRequest.setTenantId(owner.getTenantId().split("\\.")[0]);
-		userSearchRequest.setMobileNumber(owner.getMobileNumber());
+		if(!StringUtils.isEmpty(owner.getMobileNumber()))
+			userSearchRequest.setMobileNumber(owner.getMobileNumber());
 		if(!StringUtils.isEmpty(owner.getUuid())) {
 			List<String> uuids = new ArrayList<String>();
 			uuids.add(owner.getUuid());
